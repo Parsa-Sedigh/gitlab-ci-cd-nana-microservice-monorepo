@@ -1,12 +1,12 @@
 workflow:
   rules:
-    - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"      
+    - if: $CI_COMMIT_BRANCH != "main" && $CI_PIPELINE_SOURCE != "merge_request_event"
       when: never
     - when: always
 
 variables:
   DEPLOYMENT_SERVER_HOST: "13.37.235.23"
-  APP_ENDPOINT: http://ec2-13-37-235-23.eu-west-3.compute.amazonaws.com:3000
+  APP_ENDPOINT: ec2-13.37.235.23.eu-west-3.compute.amazonaws.com:3000
 
 stages:
   - build
@@ -28,8 +28,8 @@ stages:
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker build -t $IMAGE_NAME:$IMAGE_TAG .
+    # push the image that we built to docker registry:
     - docker push $IMAGE_NAME:$IMAGE_TAG
-
 
 build_frontend:
   extends: .build
@@ -57,7 +57,6 @@ build_shopping_cart:
   only:
     changes:
       - "shopping-cart/**/*"
-  
 
 .deploy:
   stage: deploy
@@ -65,7 +64,7 @@ build_shopping_cart:
     - ec2
     - remote
     - shell
-  variables: 
+  variables:
     MICRO_SERVICE: ""
     SERVICE_VERSION: ""
     APP_PORT: ""
@@ -74,23 +73,26 @@ build_shopping_cart:
     - export IMAGE_NAME=$CI_REGISTRY_IMAGE/microservice/$MICRO_SERVICE
     - export IMAGE_TAG=$SERVICE_VERSION
   script:
+    # connect to the deployment server using the $SSH_PRIVATE_KEY and copy docker-compose.yaml to the remote server using ubuntu user on path $DEPLOYMENT_SERVER_HOST:/home/ubuntu .
+    # note: We're gonna save the public IP address of the remote server in a variable called $DEPLOYMENT_SERVER_HOST (or you can call it: $DEPLOYMENT_SERVER_IP)
     - scp -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY ./docker-compose.yaml ubuntu@$DEPLOYMENT_SERVER_HOST:/home/ubuntu
+    # SSH to the server and execute the following commands(commands are written inside double quotes)
     - ssh -o StrictHostKeyChecking=no -i $SSH_PRIVATE_KEY ubuntu@$DEPLOYMENT_SERVER_HOST "
       docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY &&
-
+      
+      # $IMAGE_NAME is whatever we put together in before_script of this job
       export COMPOSE_PROJECT_NAME=$MICRO_SERVICE &&
       export DC_IMAGE_NAME=$IMAGE_NAME &&
       export DC_IMAGE_TAG=$IMAGE_TAG &&
       export DC_APP_PORT=$APP_PORT &&
-
+      
       docker network create micro_service || true &&
-
+      
       docker-compose down &&
       docker-compose up -d"
   environment:
     name: development
     url: $APP_ENDPOINT
-
 
 deploy_frontend:
   extends: .deploy
